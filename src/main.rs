@@ -108,16 +108,20 @@ mod scheme_grid {
             });
 
             for row in self.schemes.chunks(self.columns) {
-                let row_of_lines: Vec<Vec<String>> = row.iter().map(scheme_to_lines).collect();
+                let mut row_of_lines: Vec<Vec<String>> = row.iter().map(scheme_to_lines).collect();
                 let num_lines = row_of_lines[0].len();
+                // fill with emtpy blocks
+                while row_of_lines.len() < self.columns {
+                    row_of_lines.push(vec!["".into(); num_lines])
+                }
+                // empty line above
+                for _i in 0..self.columns {
+                    grid.add(Cell::from(""))
+                }
                 for i in 0..num_lines {
                     for lines in &row_of_lines {
                         grid.add(Cell::from(lines[i].clone()));
                     }
-                }
-
-                for _i in 0..self.columns {
-                    grid.add(Cell::from(""))
                 }
             }
 
