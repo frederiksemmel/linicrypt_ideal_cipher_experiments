@@ -1,91 +1,132 @@
-use grid::{Cell, Grid};
 use itertools::iproduct;
 use na::*;
 use nalgebra as na;
+use scheme_grid::SchemeGrid;
 use std::collections::HashMap;
 
 type Row = RowVector3<u8>;
 
-struct CompressionFunction {
-    m: Row,
-    k: Row,
-    x: Row,
-    y: Row,
-}
-
-impl CompressionFunction {
-    fn to_cell(&self) -> Cell {
-        let m_line = format!("M={}{}{}", self.m[0], self.m[1], self.m[2]);
-        let k_line = format!("k={}{}{}", self.k[0], self.k[1], self.k[2]);
-        let x_line = format!("x={}{}{}", self.x[0], self.x[1], self.x[2]);
-        let y_line = format!("y={}{}{}", self.y[0], self.y[1], self.y[2]);
-        let lines = vec![m_line, k_line, x_line, y_line];
-        Cell { lines }
-    }
-}
-
-fn generate_all_schemes() -> Vec<CompressionFunction> {
-    let ms = [(0, 0, 1), (0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row::new(a, b, c));
-    let ks = [(0, 0, 1), (0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row::new(a, b, c));
-    let xs = [(0, 0, 1), (0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row::new(a, b, c));
-    let y = Row::new(0, 0, 1);
-
-    iproduct!(ms, ks, xs)
-        .map(|(m, k, x)| CompressionFunction { m, k, x, y })
-        .collect()
-}
-
-fn is_y_unconstrained(f: &CompressionFunction) -> bool {
-    let matrix = na::Matrix3::from_rows(&[f.m, f.k, f.x]).cast::<f64>();
-    let linear_combination = matrix.lu().solve(&f.y.cast().transpose());
-    linear_combination.is_none()
-}
-fn is_x_unconstrained(f: &CompressionFunction) -> bool {
-    let matrix = na::Matrix3::from_rows(&[f.m, f.k, f.y]).cast::<f64>();
-    let linear_combination = matrix.lu().solve(&f.x.cast().transpose());
-    linear_combination.is_none()
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-enum SchemeType {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SchemeType {
     Degenerate,
     A,
     B,
     Secure,
 }
 
-fn compute_scheme_type(f: &CompressionFunction) -> SchemeType {
-    let x_free = is_x_unconstrained(f);
-    let y_free = is_y_unconstrained(f);
-    match (x_free, y_free) {
-        (true, true) => SchemeType::Degenerate,
-        (true, false) => SchemeType::A,
-        (false, true) => SchemeType::B,
-        (false, false) => SchemeType::Secure,
+pub struct Scheme {
+    m: Row,
+    k: Row,
+    x: Row,
+    y: Row,
+}
+
+impl Scheme {
+    fn is_y_unconstrained(&self) -> bool {
+        let matrix = na::Matrix3::from_rows(&[self.m, self.k, self.x]).cast::<f64>();
+        let linear_combination = matrix.lu().solve(&self.y.cast().transpose());
+        linear_combination.is_none()
     }
+    fn is_x_unconstrained(&self) -> bool {
+        let matrix = na::Matrix3::from_rows(&[self.m, self.k, self.y]).cast::<f64>();
+        let linear_combination = matrix.lu().solve(&self.x.cast().transpose());
+        linear_combination.is_none()
+    }
+    fn collision_structure_type(&self) -> SchemeType {
+        let y_free = self.is_y_unconstrained();
+        let x_free = self.is_x_unconstrained();
+        match (y_free, x_free) {
+            (true, true) => SchemeType::Degenerate,
+            (true, false) => SchemeType::A,
+            (false, true) => SchemeType::B,
+            (false, false) => SchemeType::Secure,
+        }
+    }
+}
+
+fn generate_all_schemes() -> Vec<Scheme> {
+    let ms = [(0, 0, 1), (0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row::new(a, b, c));
+    let ks = [(0, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row::new(a, b, c));
+    let xs = [(0, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row::new(a, b, c));
+    let y = Row::new(0, 0, 1);
+
+    iproduct!(ms, ks, xs)
+        .map(|(m, k, x)| Scheme { m, k, x, y })
+        .collect()
+}
+
+fn generate_non_constant_schemes() -> Vec<Scheme> {
+    let ms = [(0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row::new(a, b, c));
+    let ks = [(0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row::new(a, b, c));
+    let xs = [(0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row::new(a, b, c));
+    let y = Row::new(0, 0, 1);
+
+    iproduct!(ms, ks, xs)
+        .map(|(m, k, x)| Scheme { m, k, x, y })
+        .collect()
 }
 
 fn main() {
     let schemes = generate_all_schemes();
+    let _non_constan_schemes = generate_non_constant_schemes();
     let mut counter = HashMap::new();
 
-    for f in schemes {
-        let scheme_type = compute_scheme_type(&f);
-        let mut cell = f.to_cell();
-        cell.lines.push(format!("{:?}", scheme_type));
-
+    for f in &schemes {
+        let scheme_type = f.collision_structure_type();
         let c = counter.entry(scheme_type).or_insert(0);
         *c += 1;
     }
+
+    let scheme_grid = SchemeGrid {
+        columns: 4,
+        schemes,
+    };
+
+    println!("{}", scheme_grid);
+    println!("Counter {:?}", counter);
 }
 
-mod grid {
-    pub struct Grid {
+mod scheme_grid {
+    use super::Scheme;
+    use std::fmt;
+    use term_grid::{Cell, Direction, Filling, Grid, GridOptions};
+
+    pub struct SchemeGrid {
         pub columns: usize,
-        pub cells: Vec<Cell>,
+        pub schemes: Vec<Scheme>,
     }
 
-    pub struct Cell {
-        pub lines: Vec<String>,
+    impl fmt::Display for SchemeGrid {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let mut grid = Grid::new(GridOptions {
+                filling: Filling::Spaces(3),
+                direction: Direction::LeftToRight,
+            });
+
+            for row in self.schemes.chunks(self.columns) {
+                let row_of_lines: Vec<Vec<String>> = row.iter().map(scheme_to_lines).collect();
+                let num_lines = row_of_lines[0].len();
+                for i in 0..num_lines {
+                    for lines in &row_of_lines {
+                        grid.add(Cell::from(lines[i].clone()));
+                    }
+                }
+
+                for _i in 0..self.columns {
+                    grid.add(Cell::from(""))
+                }
+            }
+
+            write!(f, "{}", grid.fit_into_columns(self.columns))
+        }
+    }
+
+    fn scheme_to_lines(scheme: &Scheme) -> Vec<String> {
+        let m_line = format!("M={}{}{}", scheme.m[0], scheme.m[1], scheme.m[2]);
+        let k_line = format!("k={}{}{}", scheme.k[0], scheme.k[1], scheme.k[2]);
+        let x_line = format!("x={}{}{}", scheme.x[0], scheme.x[1], scheme.x[2]);
+        let y_line = format!("y={}{}{}", scheme.y[0], scheme.y[1], scheme.y[2]);
+        let type_line = format!("{:?}", scheme.collision_structure_type());
+        vec![m_line, k_line, x_line, y_line, type_line]
     }
 }
