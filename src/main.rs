@@ -66,7 +66,7 @@ fn generate_non_constant_schemes() -> Vec<Scheme> {
         .collect()
 }
 
-fn main() {
+fn compression_functions() {
     let schemes = generate_all_schemes();
     let _non_constan_schemes = generate_non_constant_schemes();
     let mut counter = HashMap::new();
@@ -84,6 +84,10 @@ fn main() {
 
     println!("{}", scheme_grid);
     println!("Counter {:?}", counter);
+}
+
+fn main() {
+    compression_functions();
 }
 
 mod scheme_grid {
