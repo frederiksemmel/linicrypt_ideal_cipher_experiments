@@ -1,27 +1,76 @@
 use itertools::iproduct;
+use itertools::Itertools;
 use na::*;
 use nalgebra as na;
 use scheme_grid::SchemeGrid;
 use std::collections::HashMap;
 
-type Row = RowVector3<u8>;
+type Row3 = RowVector3<u8>;
+type Row5 = RowVector3<u8>;
+
+mod scheme_grid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum SchemeType {
+enum SchemeType {
     Degenerate,
     A,
     B,
     Secure,
 }
 
-pub struct Scheme {
-    m: Row,
-    k: Row,
-    x: Row,
-    y: Row,
+pub struct SingleQueryScheme {
+    m: Row3,
+    k: Row3,
+    x: Row3,
+    y: Row3,
 }
 
-impl Scheme {
+#[derive(Debug, Clone)]
+enum Operation {
+    E,
+    D,
+}
+
+#[derive(Debug, Clone)]
+enum Direction {
+    Forward,
+    Backward,
+}
+
+struct Constraint5 {
+    op: Operation,
+    k: Row5,
+    x: Row5,
+    y: Row5,
+}
+
+struct Out1In3Query2 {
+    m: Row5,
+    c1: Constraint5,
+    c2: Constraint5,
+}
+
+struct CollisionStructure<const BASE: usize> {
+    i_star: usize,
+    same: Vec<Constraint<BASE>>,
+    different: Vec<(Constraint<BASE>, Direction)>,
+}
+
+#[derive(Debug, Clone)]
+struct Constraint<const BASE: usize> {
+    op: Operation,
+    k: RowSVector<u8, BASE>,
+    x: RowSVector<u8, BASE>,
+    y: RowSVector<u8, BASE>,
+}
+
+#[derive(Debug)]
+struct Linicrypt<const OUT: usize, const BASE: usize> {
+    m: SMatrix<u8, OUT, BASE>,
+    constraints: Vec<Constraint<BASE>>,
+}
+
+impl SingleQueryScheme {
     fn is_y_unconstrained(&self) -> bool {
         let matrix = na::Matrix3::from_rows(&[self.m, self.k, self.x]).cast::<f64>();
         let linear_combination = matrix.lu().solve(&self.y.cast().transpose());
@@ -44,25 +93,68 @@ impl Scheme {
     }
 }
 
-fn generate_all_schemes() -> Vec<Scheme> {
-    let ms = [(0, 0, 1), (0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row::new(a, b, c));
-    let ks = [(0, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row::new(a, b, c));
-    let xs = [(0, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row::new(a, b, c));
-    let y = Row::new(0, 0, 1);
+fn generate_all_schemes() -> Vec<SingleQueryScheme> {
+    let ms = [(0, 0, 1), (0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row3::new(a, b, c));
+    let ks = [(0, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row3::new(a, b, c));
+    let xs = [(0, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row3::new(a, b, c));
+    let y = Row3::new(0, 0, 1);
 
     iproduct!(ms, ks, xs)
-        .map(|(m, k, x)| Scheme { m, k, x, y })
+        .map(|(m, k, x)| SingleQueryScheme { m, k, x, y })
         .collect()
 }
 
-fn generate_non_constant_schemes() -> Vec<Scheme> {
-    let ms = [(0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row::new(a, b, c));
-    let ks = [(0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row::new(a, b, c));
-    let xs = [(0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row::new(a, b, c));
-    let y = Row::new(0, 0, 1);
+fn generate_non_constant_schemes() -> Vec<SingleQueryScheme> {
+    let ms = [(0, 1, 1), (1, 0, 1), (1, 1, 1)].map(|(a, b, c)| Row3::new(a, b, c));
+    let ks = [(0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row3::new(a, b, c));
+    let xs = [(0, 1, 0), (1, 0, 0), (1, 1, 0)].map(|(a, b, c)| Row3::new(a, b, c));
+    let y = Row3::new(0, 0, 1);
 
     iproduct!(ms, ks, xs)
-        .map(|(m, k, x)| Scheme { m, k, x, y })
+        .map(|(m, k, x)| SingleQueryScheme { m, k, x, y })
+        .collect()
+}
+
+fn generate_all_vecs<const BASE: usize, const DIM: usize>(
+    last_entries: [u8; DIM],
+) -> impl Iterator<Item = RowVector5<u8>> {
+    (0..(BASE - DIM))
+        .map(|_| 0..=1)
+        .multi_cartesian_product()
+        .map(move |v| RowVector5::<u8>::from_iterator(v.into_iter().chain(last_entries)))
+}
+
+fn generate_3_input_2_query_schemes() -> Vec<Linicrypt<1, 5>> {
+    let ms = generate_all_vecs::<5, 1>([1]);
+    let ks1: Vec<_> = generate_all_vecs::<5, 2>([0, 0]).collect();
+    let xs1: Vec<_> = generate_all_vecs::<5, 2>([0, 0]).collect();
+    let y1 = RowVector5::<u8>::new(0, 0, 0, 1, 0);
+    let cs1: Vec<_> = iproduct!(ks1, xs1)
+        .map(|(k, x)| Constraint {
+            op: Operation::E,
+            k,
+            x,
+            y: y1,
+        })
+        .collect();
+
+    let ks2: Vec<_> = generate_all_vecs::<5, 1>([0]).collect();
+    let xs2: Vec<_> = generate_all_vecs::<5, 1>([0]).collect();
+    let y2 = RowVector5::<u8>::new(0, 0, 0, 1, 0);
+    let cs2: Vec<_> = iproduct!(ks2, xs2)
+        .map(|(k, x)| Constraint {
+            op: Operation::E,
+            k,
+            x,
+            y: y2,
+        })
+        .collect();
+
+    iproduct!(ms, cs1, cs2)
+        .map(|(m, c1, c2)| Linicrypt {
+            m,
+            constraints: vec![c1, c2],
+        })
         .collect()
 }
 
@@ -88,53 +180,10 @@ fn compression_functions() {
 
 fn main() {
     compression_functions();
-}
 
-mod scheme_grid {
-    use super::Scheme;
-    use std::fmt;
-    use term_grid::{Cell, Direction, Filling, Grid, GridOptions};
+    println!("\n-------------------------------------------------------------------\n");
 
-    pub struct SchemeGrid {
-        pub columns: usize,
-        pub schemes: Vec<Scheme>,
-    }
-
-    impl fmt::Display for SchemeGrid {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let mut grid = Grid::new(GridOptions {
-                filling: Filling::Spaces(3),
-                direction: Direction::LeftToRight,
-            });
-
-            for row in self.schemes.chunks(self.columns) {
-                let mut row_of_lines: Vec<Vec<String>> = row.iter().map(scheme_to_lines).collect();
-                let num_lines = row_of_lines[0].len();
-                // fill with emtpy blocks
-                while row_of_lines.len() < self.columns {
-                    row_of_lines.push(vec!["".into(); num_lines])
-                }
-                // empty line above
-                for _i in 0..self.columns {
-                    grid.add(Cell::from(""))
-                }
-                for i in 0..num_lines {
-                    for lines in &row_of_lines {
-                        grid.add(Cell::from(lines[i].clone()));
-                    }
-                }
-            }
-
-            write!(f, "{}", grid.fit_into_columns(self.columns))
-        }
-    }
-
-    fn scheme_to_lines(scheme: &Scheme) -> Vec<String> {
-        let m_line = format!("M={}{}{}", scheme.m[0], scheme.m[1], scheme.m[2]);
-        let k_line = format!("k={}{}{}", scheme.k[0], scheme.k[1], scheme.k[2]);
-        let x_line = format!("x={}{}{}", scheme.x[0], scheme.x[1], scheme.x[2]);
-        let y_line = format!("y={}{}{}", scheme.y[0], scheme.y[1], scheme.y[2]);
-        let type_line = format!("{:?}", scheme.collision_structure_type());
-        vec![m_line, k_line, x_line, y_line, type_line]
+    for vec in generate_3_input_2_query_schemes() {
+        println!("{vec:?}");
     }
 }
