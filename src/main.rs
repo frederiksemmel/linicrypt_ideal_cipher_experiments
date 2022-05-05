@@ -6,7 +6,6 @@ use scheme_grid::SchemeGrid;
 use std::collections::HashMap;
 
 type Row3 = RowVector3<u8>;
-type Row5 = RowVector3<u8>;
 
 mod scheme_grid;
 
@@ -32,31 +31,6 @@ enum Operation {
 }
 
 #[derive(Debug, Clone)]
-enum Direction {
-    Forward,
-    Backward,
-}
-
-struct Constraint5 {
-    op: Operation,
-    k: Row5,
-    x: Row5,
-    y: Row5,
-}
-
-struct Out1In3Query2 {
-    m: Row5,
-    c1: Constraint5,
-    c2: Constraint5,
-}
-
-struct CollisionStructure<const BASE: usize> {
-    i_star: usize,
-    same: Vec<Constraint<BASE>>,
-    different: Vec<(Constraint<BASE>, Direction)>,
-}
-
-#[derive(Debug, Clone)]
 struct Constraint<const BASE: usize> {
     op: Operation,
     k: RowSVector<u8, BASE>,
@@ -68,6 +42,96 @@ struct Constraint<const BASE: usize> {
 struct Linicrypt<const OUT: usize, const BASE: usize> {
     m: SMatrix<u8, OUT, BASE>,
     constraints: Vec<Constraint<BASE>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CsDirection {
+    Forward,
+    Backward,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SimpleCS<const SAME: usize, const DIFF: usize> {
+    same: [usize; SAME],
+    different: [(usize, CsDirection); DIFF],
+}
+
+trait CollisionStructure {
+    fn same(&self) -> &[usize];
+    fn different(&self) -> &[(usize, CsDirection)];
+}
+
+impl<const SAME: usize, const DIFF: usize> CollisionStructure for SimpleCS<SAME, DIFF> {
+    fn same(&self) -> &[usize] {
+        &self.same
+    }
+    fn different(&self) -> &[(usize, CsDirection)] {
+        &self.different
+    }
+}
+
+fn generate_all_cs_2() -> Vec<Box<dyn CollisionStructure>> {
+    let cs1 = SimpleCS::<0, 2> {
+        same: [],
+        different: [(1, CsDirection::Backward), (1, CsDirection::Backward)],
+    };
+    let cs2 = SimpleCS::<0, 2> {
+        same: [],
+        different: [(1, CsDirection::Forward), (1, CsDirection::Backward)],
+    };
+    vec![Box::new(cs1), Box::new(cs2)]
+}
+
+fn is_free(v: RowVector5<u8>, fixed: &[RowVector5<u8>]) -> bool {
+    // println!("fixed: {:?}", fixed);
+    // println!("free:  {:?}", v);
+    let matrix = na::OMatrix::<u8, Dynamic, U5>::from_rows(fixed)
+        .cast::<f64>()
+        .transpose();
+    let v = v.cast().transpose();
+    let linear_combination = matrix.clone().svd(true, true).solve(&v, 0.0001).unwrap();
+    // println!("solution: {linear_combination:?}");
+    let check = matrix * linear_combination;
+    // println!("check: {check:?}\nv: {v:?}");
+    if (check - v).norm() < 0.01 {
+        return false;
+    }
+    true
+}
+use std::ops::Deref;
+
+impl Linicrypt<1, 5> {
+    fn check_for_cs_3_2_1(&self, cs: impl Deref<Target = dyn CollisionStructure>) -> bool {
+        let same = cs.same().iter().map(|i| &self.constraints[*i]);
+        let mut fixed: Vec<_> = same.into_iter().flat_map(|c| [c.k, c.x, c.y]).collect();
+        fixed.push(self.m);
+        // Check 2: the i^* query is unconstraint on both sides
+        let (i_star, dir_star) = cs.different()[0];
+        let c_star = &self.constraints[i_star];
+        let (free_1, free_2) = match dir_star {
+            CsDirection::Forward => (c_star.k, c_star.x),
+            CsDirection::Backward => (c_star.k, c_star.y),
+        };
+        if !is_free(free_1, &fixed) || !is_free(free_2, &fixed) {
+            return false;
+        }
+
+        // Check 3: Every query is onconstrained on one side
+        for (i, dir) in cs.different() {
+            let c = &self.constraints[*i];
+            let (should_be_free, fixed_1, fixed_2) = match dir {
+                CsDirection::Forward => (c.y, c.k, c.x),
+                CsDirection::Backward => (c.x, c.k, c.y),
+            };
+            fixed.push(fixed_1);
+            fixed.push(fixed_2);
+            if !is_free(should_be_free, &fixed) {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 impl SingleQueryScheme {
@@ -124,8 +188,8 @@ fn generate_all_vecs<const BASE: usize, const DIM: usize>(
         .map(move |v| RowVector5::<u8>::from_iterator(v.into_iter().chain(last_entries)))
 }
 
-fn generate_3_input_2_query_schemes() -> Vec<Linicrypt<1, 5>> {
-    let ms = generate_all_vecs::<5, 1>([1]);
+fn generate_3_2_1_programs() -> Vec<Linicrypt<1, 5>> {
+    let ms = generate_all_vecs::<5, 4>([0, 0, 0, 1]);
     let ks1: Vec<_> = generate_all_vecs::<5, 2>([0, 0]).collect();
     let xs1: Vec<_> = generate_all_vecs::<5, 2>([0, 0]).collect();
     let y1 = RowVector5::<u8>::new(0, 0, 0, 1, 0);
@@ -140,7 +204,7 @@ fn generate_3_input_2_query_schemes() -> Vec<Linicrypt<1, 5>> {
 
     let ks2: Vec<_> = generate_all_vecs::<5, 1>([0]).collect();
     let xs2: Vec<_> = generate_all_vecs::<5, 1>([0]).collect();
-    let y2 = RowVector5::<u8>::new(0, 0, 0, 1, 0);
+    let y2 = RowVector5::<u8>::new(0, 0, 0, 0, 1);
     let cs2: Vec<_> = iproduct!(ks2, xs2)
         .map(|(k, x)| Constraint {
             op: Operation::E,
@@ -178,12 +242,102 @@ fn compression_functions() {
     println!("Counter {:?}", counter);
 }
 
+fn linicrypt_to_lines(p: &Linicrypt<1, 5>) -> Vec<String> {
+    let m_line = format!(" M={}{}{}{}{}", p.m[0], p.m[1], p.m[2], p.m[3], p.m[4]);
+    let c0 = &p.constraints[0];
+    let c1 = &p.constraints[1];
+    let k1_line = format!("1k={}{}{}{}{}", c0.k[0], c0.k[1], c0.k[2], c0.k[3], c0.k[4]);
+    let x1_line = format!("1x={}{}{}{}{}", c0.x[0], c0.x[1], c0.x[2], c0.x[3], c0.x[4]);
+    let y1_line = format!("1y={}{}{}{}{}", c0.y[0], c0.y[1], c0.y[2], c0.y[3], c0.y[4]);
+    let k2_line = format!("2k={}{}{}{}{}", c1.k[0], c1.k[1], c1.k[2], c1.k[3], c1.k[4]);
+    let x2_line = format!("2x={}{}{}{}{}", c1.x[0], c1.x[1], c1.x[2], c1.x[3], c1.x[4]);
+    let y2_line = format!("2y={}{}{}{}{}", c1.y[0], c1.y[1], c1.y[2], c1.y[3], c1.y[4]);
+
+    let cs = SimpleCS::<0, 2> {
+        same: [],
+        different: [(1, CsDirection::Backward), (1, CsDirection::Backward)],
+    };
+
+    let all_cs = generate_all_cs_2();
+    let mut cs_infos = all_cs
+        .into_iter()
+        .map(|cs| {
+            if p.check_for_cs_3_2_1(cs) {
+                "CS".into()
+            } else {
+                "No CS".into()
+            }
+        })
+        .collect();
+
+    let lines = vec![m_line, k1_line, x1_line, y1_line, k2_line, x2_line, y2_line];
+    lines.append(&mut cs_infos);
+    lines
+}
+
+fn collision_structure_examples() {
+    let programs = generate_3_2_1_programs();
+
+    // idea:
+    // generate all (16) possible collision structures for 3_2_1
+    // check each of p for all collision structures
+    let cs = SimpleCS::<1, 1> {
+        same: [0],
+        different: [(1, CsDirection::Forward)],
+    };
+
+    let programs_with_cs: Vec<_> = programs
+        .into_iter()
+        .filter(|p| {
+            if p.check_for_cs_3_2_1(&cs) {
+                println!("CS works for p");
+                println!("{:?}", p);
+                println!("{:?}", cs);
+                return true;
+            }
+            false
+        })
+        .collect();
+    // compute statistics
+    print_grid(&programs_with_cs, linicrypt_to_lines, 5);
+}
+
 fn main() {
     compression_functions();
 
     println!("\n-------------------------------------------------------------------\n");
 
-    for vec in generate_3_input_2_query_schemes() {
-        println!("{vec:?}");
+    collision_structure_examples();
+}
+
+use term_grid::{Cell, Direction, Filling, Grid, GridOptions};
+fn print_grid<const BASE: usize, const OUT: usize>(
+    programs: &[Linicrypt<BASE, OUT>],
+    to_lines: impl Fn(&Linicrypt<BASE, OUT>) -> Vec<String> + Copy,
+    columns: usize,
+) {
+    let mut grid = Grid::new(GridOptions {
+        filling: Filling::Spaces(3),
+        direction: Direction::LeftToRight,
+    });
+
+    for row in programs.chunks(columns) {
+        let mut row_of_lines: Vec<Vec<String>> = row.iter().map(to_lines).collect();
+        let num_lines = row_of_lines[0].len();
+        // fill with emtpy blocks
+        while row_of_lines.len() < columns {
+            row_of_lines.push(vec!["".into(); num_lines])
+        }
+        // empty line above
+        for _i in 0..columns {
+            grid.add(Cell::from(""))
+        }
+        for i in 0..num_lines {
+            for lines in &row_of_lines {
+                grid.add(Cell::from(lines[i].clone()));
+            }
+        }
     }
+
+    println!("{}", grid.fit_into_columns(columns))
 }
