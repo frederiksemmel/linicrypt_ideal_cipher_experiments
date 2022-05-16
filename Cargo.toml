@@ -3,9 +3,19 @@ name = "linicrypt"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 nalgebra = "*"
 itertools = "*"
 term_grid = "*"
+
+# [dependencies.nalgebra-lapack]
+# version = "*" # Replace the * by the latest version number.
+# default-features = false
+# features = [ "openblas" ]
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "cs_benchmark"
+harness = false
