@@ -1,6 +1,6 @@
 use itertools::iproduct;
 use itertools::Itertools;
-use linicrypt::scheme_grid::{print_grid, print_grid_schemes};
+use linicrypt::scheme_grid::{print_grid2, print_grid_schemes};
 use na::*;
 use nalgebra as na;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ fn generate_all_vecs<const BASE: usize, const DIM: usize>(
 }
 
 fn generate_3_2_1_programs() -> Vec<AlgebraicRepresentation<1, 5, 2>> {
-    let ms = generate_all_vecs::<5, 0>([]);
+    let ms = generate_all_vecs::<5, 1>([1]);
     let ks1: Vec<_> = generate_all_vecs::<5, 2>([0, 0]).collect();
     let xs1: Vec<_> = generate_all_vecs::<5, 2>([0, 0]).collect();
     let y1 = RowVector5::<u8>::new(0, 0, 0, 1, 0);
@@ -115,16 +115,19 @@ fn check_css<const DIFF: usize>(
     p: &AlgebraicRepresentation<1, 5, 2>,
     css: &[CollisionStructure<2, DIFF>],
     counter: &mut HashMap<String, usize>,
-) {
-    for cs in css {
-        let cs_id = cs.id();
-        if p.has_cs(cs) {
-            println!("Y{cs_id}");
-            *counter.entry(cs_id).or_insert(0) += 1;
-        } else {
-            println!(" {cs_id}");
-        }
-    }
+) -> (Vec<usize>, Vec<String>) {
+    css.iter()
+        .map(|cs| {
+            let cs_id = cs.id();
+            if p.has_cs(cs) {
+                let out = (1, format!("Y{cs_id}"));
+                *counter.entry(cs_id).or_insert(0) += 1;
+                out
+            } else {
+                (0, format!(" {cs_id}"))
+            }
+        })
+        .unzip()
 }
 
 fn collision_structure_examples() {
@@ -134,15 +137,48 @@ fn collision_structure_examples() {
     let css1: Vec<_> = generate_all_cs_2::<1>().collect();
 
     let mut counter: HashMap<String, usize> = HashMap::new();
-
-    for p in &programs[0..10000] {
-        print_linicrypt(p);
-        check_css(p, &css2, &mut counter);
-        check_css(p, &css1, &mut counter);
+    let all_ids = css2
+        .iter()
+        .map(|cs| cs.id())
+        .chain(css1.iter().map(|cs| cs.id()));
+    for id in all_ids {
+        counter.insert(id, 0);
     }
 
-    // print_grid(&programs, linicrypt_to_lines_infos, 7);
+    let mut combination_counter: HashMap<Vec<usize>, usize> = HashMap::new();
+    let all_combinations = (0..12).into_iter().map(|_| 0..=1).multi_cartesian_product();
+    for comb in all_combinations {
+        combination_counter.insert(comb, 0);
+    }
+
+    let non_degenerate: Vec<_> = programs
+        .into_iter()
+        .filter(|p| !p.is_degenerate())
+        .collect();
+
+    let mut cells = vec![];
+    for p in &non_degenerate {
+        let mut cell = linicrypt_to_lines(p);
+        let (mut cs_2, mut info_2) = check_css(p, &css2, &mut counter);
+        cell.append(&mut info_2);
+        let (mut cs_1, mut info_1) = check_css(p, &css1, &mut counter);
+        cell.append(&mut info_1);
+
+        let num_cs_2: usize = cs_2.iter().sum();
+        let num_cs_1: usize = cs_1.iter().sum();
+
+        cs_2.append(&mut cs_1);
+        let combination_of_cs = cs_2;
+        *combination_counter.get_mut(&combination_of_cs).unwrap() += 1;
+
+        if num_cs_2 > 0 && num_cs_1 == 0 {
+            cells.push(cell);
+        }
+    }
+
+    print_grid2(cells, 8);
     println!("{:?}", counter);
+    println!("{:?}", combination_counter);
 }
 
 fn main() {
