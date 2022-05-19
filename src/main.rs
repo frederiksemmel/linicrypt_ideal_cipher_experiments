@@ -116,27 +116,10 @@ pub fn linicrypt_to_lines_infos(p: &AlgebraicRepresentation<5, 2, 1>) -> Vec<Str
     lines
 }
 
-fn check_css<const DIFF: usize>(
-    p: &AlgebraicRepresentation<5, 2, 1>,
-    css: &[CollisionStructure<2, DIFF>],
-    counter: &mut HashMap<String, usize>,
-) -> (Vec<usize>, Vec<String>) {
-    css.iter()
-        .map(|cs| {
-            let cs_id = cs.id();
-            if p.has_cs(cs) {
-                let out = (1, format!("Y{cs_id}"));
-                *counter.entry(cs_id).or_insert(0) += 1;
-                out
-            } else {
-                (0, format!(" {cs_id}"))
-            }
-        })
-        .unzip()
-}
-fn check_css_1(
-    p: &AlgebraicRepresentation<3, 1, 1>,
-    css: &[CollisionStructure<1, 1>],
+// TODO clean this up, need some struct to hold cs analysis data and print cs_id's
+fn check_css<const BASE: usize, const N: usize, const DIFF: usize>(
+    p: &AlgebraicRepresentation<BASE, N, 1>,
+    css: &[CollisionStructure<N, DIFF>],
     counter: &mut HashMap<String, usize>,
 ) -> (Vec<usize>, Vec<String>) {
     css.iter()
@@ -154,6 +137,7 @@ fn check_css_1(
 }
 
 fn compression_functions() {
+    println!();
     println!("Analyzing all 64 compression schemes with 2 input, 1 queries and 1 output.");
     let ps = generate_2_1_1_programs::<{ 2 + 1 }>();
     let css: Vec<_> = generate_all_cs_1::<1>().collect();
@@ -162,7 +146,7 @@ fn compression_functions() {
     let mut cells = vec![];
 
     for p in &ps {
-        let (mut _cs, mut info) = check_css_1(p, &css, &mut counter);
+        let (mut _cs, mut info) = check_css(p, &css, &mut counter);
         let mut cell = linicrypt_to_lines(p);
         cell.append(&mut info);
         // print_linicrypt(p);
@@ -173,7 +157,35 @@ fn compression_functions() {
     println!("{:?}", counter);
 }
 
+fn repr_slice<'a>(row: impl IntoIterator<Item = &'a (impl std::fmt::Display + 'a)>) -> String {
+    row.into_iter().map(|entry| format!("{}", entry)).collect()
+}
+
+fn print_comb_counter(
+    css1: &[CollisionStructure<2, 2>],
+    css2: &[CollisionStructure<2, 1>],
+    counter: HashMap<Vec<usize>, usize>,
+) {
+    println!("These combinations of types occured.");
+    println!("This is the order of types used in the binary representation of the combination.");
+    for cs in css1 {
+        println!("{}", cs.id());
+    }
+    for cs in css2 {
+        println!("{}", cs.id());
+    }
+    let mut counter: Vec<(Vec<usize>, usize)> = counter.into_iter().collect();
+    counter.sort_by_cached_key(|(comb, _count)| comb.iter().fold(0, |acc, &b| acc * 2 + b as u32));
+    for (comb, count) in counter.iter() {
+        if *count != 0 {
+            let comb_str = repr_slice(comb);
+            println!("{}: {count}", comb_str);
+        }
+    }
+}
+
 fn collision_structure_examples() {
+    println!();
     println!("Finding interesting examples with 3 input, 2 queries and 1 output.");
     let programs = generate_i_2_1_programs::<{ 3 + 2 }>();
 
@@ -215,17 +227,18 @@ fn collision_structure_examples() {
         let combination_of_cs = cs_2;
         *combination_counter.get_mut(&combination_of_cs).unwrap() += 1;
 
-        if num_cs_2 == 0 && num_cs_1 == 1 {
+        if num_cs_2 + num_cs_1 <= 2 {
             cells.push(cell);
         }
     }
 
     print_grid(cells, 8);
-    println!("{:?}", counter);
-    println!("{:?}", combination_counter);
+    println!("{:#?}", counter);
+    print_comb_counter(&css2, &css1, combination_counter);
 }
 
 fn secure_4_2_1() {
+    println!();
     println!(
         "Finding a program with 4 inputs, making 2 queries to E without a collision structure"
     );

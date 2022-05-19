@@ -94,23 +94,24 @@ impl<const N: usize, const DIFF: usize> CollisionStructure<N, DIFF> {
     }
 }
 
-impl<const DIFF: usize> CollisionStructure<2, DIFF> {
+fn repr_slice<'a>(row: impl IntoIterator<Item = &'a (impl std::fmt::Display + 'a)>) -> String {
+    row.into_iter().map(|entry| format!("{}", entry)).collect()
+}
+
+impl<const N: usize, const DIFF: usize> CollisionStructure<N, DIFF> {
     pub fn id(&self) -> String {
-        let perm = format!("{}{}", self.permutation[0], self.permutation[1]);
-        let cs_type = match DIFF {
-            1 => format!(" {}", self.cs_type[0]),
-            2 => format!("{}{}", self.cs_type[0], self.cs_type[1]),
-            _ => unreachable!(),
-        };
-        format!("{perm},{},{cs_type}", 2 - DIFF)
+        let perm = repr_slice(&self.permutation);
+        // let perm = format!("{}{}", self.permutation[0], self.permutation[1]);
+        let cs_type = repr_slice(&self.cs_type);
+        format!("{perm},{},{cs_type}", N - DIFF)
     }
 }
-impl CollisionStructure<1, 1> {
-    pub fn id(&self) -> String {
-        let perm = format!("{}", self.permutation[0]);
-        format!("{perm},{},{}", 0, self.cs_type[0])
-    }
-}
+// impl CollisionStructure<1, 1> {
+//     pub fn id(&self) -> String {
+//         let perm = format!("{}", self.permutation[0]);
+//         format!("{perm},{},{}", 0, self.cs_type[0])
+//     }
+// }
 
 fn is_in_span<const BASE: usize>(v: RowSVector<u8, BASE>, fixed: &[RowSVector<u8, BASE>]) -> bool {
     let matrix = na::OMatrix::<u8, Dynamic, Const<BASE>>::from_rows(fixed).cast::<f64>();
