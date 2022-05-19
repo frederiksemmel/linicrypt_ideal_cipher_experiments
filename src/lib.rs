@@ -1,18 +1,17 @@
 use na::*;
 use nalgebra as na;
 
-pub mod compression_schemes;
-pub mod scheme_grid;
+pub mod print_grid;
 
 const EPSILON: f64 = 0.0001;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Operation {
     E,
     D,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Constraint<const BASE: usize> {
     pub op: Operation,
     pub k: RowSVector<u8, BASE>,
@@ -21,13 +20,13 @@ pub struct Constraint<const BASE: usize> {
 }
 
 #[derive(Debug)]
-pub struct AlgebraicRepresentation<const OUT: usize, const BASE: usize, const N: usize> {
+pub struct AlgebraicRepresentation<const BASE: usize, const N: usize, const OUT: usize> {
     pub m: SMatrix<u8, OUT, BASE>,
     pub constraints: [Constraint<BASE>; N],
 }
 
 type RawConstraint<const BASE: usize> = (Operation, [u8; BASE], [u8; BASE], [u8; BASE]);
-impl<const BASE: usize, const N: usize> AlgebraicRepresentation<1, BASE, N> {
+impl<const BASE: usize, const N: usize> AlgebraicRepresentation<BASE, N, 1> {
     pub fn new(m: [u8; BASE], cs: [RawConstraint<BASE>; N]) -> Self {
         let constraints = cs.map(|(op, k, x, y)| Constraint {
             op,
@@ -35,7 +34,7 @@ impl<const BASE: usize, const N: usize> AlgebraicRepresentation<1, BASE, N> {
             x: RowSVector::from_row_slice(&x),
             y: RowSVector::from_row_slice(&y),
         });
-        AlgebraicRepresentation::<1, BASE, N> {
+        AlgebraicRepresentation::<BASE, N, 1> {
             m: SMatrix::from_row_slice(&m),
             constraints,
         }
@@ -64,9 +63,10 @@ pub struct CollisionStructure<const N: usize, const DIFF: usize> {
     pub cs_type: [Direction; DIFF],
 }
 
+// TODO This will probably be needed to generate collision structures dynamically
 pub trait CollisionStructureTrait {
     fn same(&self) -> &[usize];
-    fn different(&self) -> &[usize];
+    fn different(&self) -> DifferentIter;
     fn types(&self) -> &[Direction];
     fn i_star(&self) -> (usize, Direction);
 }
@@ -105,6 +105,12 @@ impl<const DIFF: usize> CollisionStructure<2, DIFF> {
         format!("{perm},{},{cs_type}", 2 - DIFF)
     }
 }
+impl CollisionStructure<1, 1> {
+    pub fn id(&self) -> String {
+        let perm = format!("{}", self.permutation[0]);
+        format!("{perm},{},{}", 0, self.cs_type[0])
+    }
+}
 
 fn is_in_span<const BASE: usize>(v: RowSVector<u8, BASE>, fixed: &[RowSVector<u8, BASE>]) -> bool {
     let matrix = na::OMatrix::<u8, Dynamic, Const<BASE>>::from_rows(fixed).cast::<f64>();
@@ -123,10 +129,10 @@ fn full_rank<const BASE: usize>(rows: &[RowSVector<u8, BASE>]) -> bool {
         .cast::<f64>()
         .transpose();
     let rank = matrix.svd(false, false).rank(EPSILON);
-    rank < min(rows.len(), 5)
+    rank < min(rows.len(), BASE)
 }
 
-impl<const BASE: usize, const N: usize> AlgebraicRepresentation<1, BASE, N> {
+impl<const BASE: usize, const N: usize> AlgebraicRepresentation<BASE, N, 1> {
     pub fn has_cs<const I_STAR: usize>(&self, cs: &CollisionStructure<N, I_STAR>) -> bool {
         let same = cs
             .same()
@@ -224,7 +230,7 @@ mod tests {
             permutation: [0, 1],
             cs_type: [B, F],
         };
-        let p = AlgebraicRepresentation::<1, 5, 2>::new(
+        let p = AlgebraicRepresentation::<5, 2, 1>::new(
             [0, 1, 0, 0, 1],
             [
                 (E, [1, 0, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0]),
@@ -244,7 +250,7 @@ mod tests {
             permutation: [0, 1],
             cs_type: [B, F],
         };
-        let p = AlgebraicRepresentation::<1, 5, 2>::new(
+        let p = AlgebraicRepresentation::<5, 2, 1>::new(
             [0, 0, 1, 0, 1],
             [
                 (E, [0, 1, 0, 0, 0], [1, 0, 0, 0, 0], [0, 0, 0, 1, 0]),
@@ -264,7 +270,7 @@ mod tests {
             permutation: [0, 1],
             cs_type: [F, B],
         };
-        let p = AlgebraicRepresentation::<1, 5, 2>::new(
+        let p = AlgebraicRepresentation::<5, 2, 1>::new(
             [0, 0, 0, 0, 1],
             [
                 (E, [0, 0, 1, 0, 0], [0, 1, 0, 0, 0], [0, 0, 0, 1, 0]),

@@ -1,6 +1,6 @@
 use itertools::iproduct;
 use itertools::Itertools;
-use linicrypt::scheme_grid::{print_grid2, print_grid_schemes};
+use linicrypt::print_grid::print_grid;
 use na::*;
 use nalgebra as na;
 use std::collections::HashMap;
@@ -17,42 +17,45 @@ fn generate_all_cs_2<const DIFF: usize>() -> impl Iterator<Item = CollisionStruc
     })
 }
 
+fn generate_all_cs_1<const DIFF: usize>() -> impl Iterator<Item = CollisionStructure<1, DIFF>> {
+    use Direction::*;
+    let perms = (0..1).permutations(1);
+    let types = (0..DIFF).map(|_| vec![F, B]).multi_cartesian_product();
+    iproduct!(perms, types).map(|(p, t)| CollisionStructure::<1, DIFF> {
+        permutation: p.try_into().unwrap(),
+        cs_type: t.try_into().unwrap(),
+    })
+}
+
 fn generate_all_vecs<const BASE: usize, const DIM: usize>(
     last_entries: [u8; DIM],
-) -> impl Iterator<Item = RowVector5<u8>> {
+) -> impl Iterator<Item = RowSVector<u8, BASE>> {
     (0..(BASE - DIM))
         .map(|_| 0..=1)
         .multi_cartesian_product()
-        .map(move |v| RowVector5::<u8>::from_iterator(v.into_iter().chain(last_entries)))
+        .map(move |v| RowSVector::<u8, BASE>::from_iterator(v.into_iter().chain(last_entries)))
 }
 
-fn generate_3_2_1_programs() -> Vec<AlgebraicRepresentation<1, 5, 2>> {
-    let ms = generate_all_vecs::<5, 1>([1]);
-    let ks1: Vec<_> = generate_all_vecs::<5, 2>([0, 0]).collect();
-    let xs1: Vec<_> = generate_all_vecs::<5, 2>([0, 0]).collect();
-    let y1 = RowVector5::<u8>::new(0, 0, 0, 1, 0);
-    let cs1: Vec<_> = iproduct!(ks1, xs1)
-        .map(|(k, x)| Constraint {
-            op: Operation::E,
-            k,
-            x,
-            y: y1,
-        })
-        .collect();
+fn generate_all_constraints<const BASE: usize, const ZEROS: usize>(
+) -> impl Iterator<Item = Constraint<BASE>> {
+    let ks1: Vec<_> = generate_all_vecs::<BASE, ZEROS>([0; ZEROS]).collect();
+    let xs1: Vec<_> = generate_all_vecs::<BASE, ZEROS>([0; ZEROS]).collect();
+    let mut y1 = RowSVector::<u8, BASE>::zeros();
+    y1[BASE - ZEROS] = 1;
+    iproduct!(ks1, xs1).map(move |(k, x)| Constraint {
+        op: Operation::E,
+        k,
+        x,
+        y: y1,
+    })
+}
 
-    let ks2: Vec<_> = generate_all_vecs::<5, 1>([0]).collect();
-    let xs2: Vec<_> = generate_all_vecs::<5, 1>([0]).collect();
-    let y2 = RowVector5::<u8>::new(0, 0, 0, 0, 1);
-    let cs2: Vec<_> = iproduct!(ks2, xs2)
-        .map(|(k, x)| Constraint {
-            op: Operation::E,
-            k,
-            x,
-            y: y2,
-        })
-        .collect();
+fn generate_i_2_1_programs<const BASE: usize>() -> Vec<AlgebraicRepresentation<BASE, 2, 1>> {
+    let ms = generate_all_vecs::<BASE, 1>([1]);
+    let c1s: Vec<_> = generate_all_constraints::<BASE, 2>().collect();
+    let c2s: Vec<_> = generate_all_constraints::<BASE, 1>().collect();
 
-    iproduct!(ms, cs1, cs2)
+    iproduct!(ms, c1s, c2s)
         .map(|(m, c1, c2)| AlgebraicRepresentation {
             m,
             constraints: [c1, c2],
@@ -60,41 +63,43 @@ fn generate_3_2_1_programs() -> Vec<AlgebraicRepresentation<1, 5, 2>> {
         .collect()
 }
 
-fn compression_functions() {
-    let schemes = linicrypt::compression_schemes::generate_all_schemes();
-    let mut counter = HashMap::new();
+fn generate_2_1_1_programs<const BASE: usize>() -> Vec<AlgebraicRepresentation<BASE, 1, 1>> {
+    let ms = generate_all_vecs::<BASE, 1>([1]);
+    let css: Vec<_> = generate_all_constraints::<BASE, 1>().collect();
 
-    for f in &schemes {
-        let scheme_type = f.collision_structure_type();
-        let c = counter.entry(scheme_type).or_insert(0);
-        *c += 1;
+    iproduct!(ms, css)
+        .map(|(m, cs)| AlgebraicRepresentation {
+            m,
+            constraints: [cs],
+        })
+        .collect()
+}
+
+fn repr_vector<const BASE: usize>(row: RowSVector<u8, BASE>) -> String {
+    row.iter().map(|entry| format!("{}", entry)).collect()
+}
+
+fn linicrypt_to_lines<const BASE: usize, const N: usize>(
+    p: &AlgebraicRepresentation<BASE, N, 1>,
+) -> Vec<String> {
+    let m_line = format!(" M={}", repr_vector(p.m));
+    let mut lines = vec![m_line];
+    for i in 0..(N) {
+        lines.push(format!("{i}k={}", repr_vector(p.constraints[i].k)));
+        lines.push(format!("{i}x={}", repr_vector(p.constraints[i].x)));
+        lines.push(format!("{i}y={}", repr_vector(p.constraints[i].y)));
     }
-
-    print_grid_schemes(&schemes, linicrypt::compression_schemes::scheme_to_lines, 4);
-    println!("Counter {:?}", counter);
+    lines
 }
 
-fn linicrypt_to_lines(p: &AlgebraicRepresentation<1, 5, 2>) -> Vec<String> {
-    let m_line = format!(" M={}{}{}{}{}", p.m[0], p.m[1], p.m[2], p.m[3], p.m[4]);
-    let c0 = &p.constraints[0];
-    let c1 = &p.constraints[1];
-    let k1_line = format!("1k={}{}{}{}{}", c0.k[0], c0.k[1], c0.k[2], c0.k[3], c0.k[4]);
-    let x1_line = format!("1x={}{}{}{}{}", c0.x[0], c0.x[1], c0.x[2], c0.x[3], c0.x[4]);
-    let y1_line = format!("1y={}{}{}{}{}", c0.y[0], c0.y[1], c0.y[2], c0.y[3], c0.y[4]);
-    let k2_line = format!("2k={}{}{}{}{}", c1.k[0], c1.k[1], c1.k[2], c1.k[3], c1.k[4]);
-    let x2_line = format!("2x={}{}{}{}{}", c1.x[0], c1.x[1], c1.x[2], c1.x[3], c1.x[4]);
-    let y2_line = format!("2y={}{}{}{}{}", c1.y[0], c1.y[1], c1.y[2], c1.y[3], c1.y[4]);
-    vec![m_line, k1_line, x1_line, y1_line, k2_line, x2_line, y2_line]
-}
-
-pub fn print_linicrypt(p: &AlgebraicRepresentation<1, 5, 2>) {
+pub fn print_linicrypt<const BASE: usize, const N: usize>(p: &AlgebraicRepresentation<BASE, N, 1>) {
     let lines = linicrypt_to_lines(p);
     for line in lines {
         println!("{line}");
     }
 }
 
-pub fn linicrypt_to_lines_infos(p: &AlgebraicRepresentation<1, 5, 2>) -> Vec<String> {
+pub fn linicrypt_to_lines_infos(p: &AlgebraicRepresentation<5, 2, 1>) -> Vec<String> {
     let all_cs = generate_all_cs_2::<2>();
     let mut cs_infos = all_cs
         .map(|cs| {
@@ -112,7 +117,7 @@ pub fn linicrypt_to_lines_infos(p: &AlgebraicRepresentation<1, 5, 2>) -> Vec<Str
 }
 
 fn check_css<const DIFF: usize>(
-    p: &AlgebraicRepresentation<1, 5, 2>,
+    p: &AlgebraicRepresentation<5, 2, 1>,
     css: &[CollisionStructure<2, DIFF>],
     counter: &mut HashMap<String, usize>,
 ) -> (Vec<usize>, Vec<String>) {
@@ -129,9 +134,48 @@ fn check_css<const DIFF: usize>(
         })
         .unzip()
 }
+fn check_css_1(
+    p: &AlgebraicRepresentation<3, 1, 1>,
+    css: &[CollisionStructure<1, 1>],
+    counter: &mut HashMap<String, usize>,
+) -> (Vec<usize>, Vec<String>) {
+    css.iter()
+        .map(|cs| {
+            let cs_id = cs.id();
+            if p.has_cs(cs) {
+                let out = (1, format!("Y{cs_id}"));
+                *counter.entry(cs_id).or_insert(0) += 1;
+                out
+            } else {
+                (0, format!(" {cs_id}"))
+            }
+        })
+        .unzip()
+}
+
+fn compression_functions() {
+    println!("Analyzing all 64 compression schemes with 2 input, 1 queries and 1 output.");
+    let ps = generate_2_1_1_programs::<{ 2 + 1 }>();
+    let css: Vec<_> = generate_all_cs_1::<1>().collect();
+
+    let mut counter: HashMap<String, usize> = HashMap::new();
+    let mut cells = vec![];
+
+    for p in &ps {
+        let (mut _cs, mut info) = check_css_1(p, &css, &mut counter);
+        let mut cell = linicrypt_to_lines(p);
+        cell.append(&mut info);
+        // print_linicrypt(p);
+        cells.push(cell);
+    }
+
+    print_grid(cells, 4);
+    println!("{:?}", counter);
+}
 
 fn collision_structure_examples() {
-    let programs = generate_3_2_1_programs();
+    println!("Finding interesting examples with 3 input, 2 queries and 1 output.");
+    let programs = generate_i_2_1_programs::<{ 3 + 2 }>();
 
     let css2: Vec<_> = generate_all_cs_2::<2>().collect();
     let css1: Vec<_> = generate_all_cs_2::<1>().collect();
@@ -171,22 +215,40 @@ fn collision_structure_examples() {
         let combination_of_cs = cs_2;
         *combination_counter.get_mut(&combination_of_cs).unwrap() += 1;
 
-        if num_cs_2 > 0 && num_cs_1 == 0 {
+        if num_cs_2 == 0 && num_cs_1 == 1 {
             cells.push(cell);
         }
     }
 
-    print_grid2(cells, 8);
+    print_grid(cells, 8);
     println!("{:?}", counter);
     println!("{:?}", combination_counter);
 }
 
+fn secure_4_2_1() {
+    println!(
+        "Finding a program with 4 inputs, making 2 queries to E without a collision structure"
+    );
+    let ps = generate_i_2_1_programs::<{ 4 + 2 }>();
+    let css2: Vec<_> = generate_all_cs_2::<2>().collect();
+    let css1: Vec<_> = generate_all_cs_2::<1>().collect();
+    for p in &ps {
+        if p.is_degenerate() {
+            continue;
+        }
+        let has_cs_1 = css1.iter().any(|cs| p.has_cs(cs));
+        let has_cs_2 = css2.iter().any(|cs| p.has_cs(cs));
+        if !has_cs_1 && !has_cs_2 {
+            print_linicrypt(p);
+            break;
+        }
+    }
+}
+
 fn main() {
     compression_functions();
-
-    println!("\n-------------------------------------------------------------------\n");
-
     collision_structure_examples();
+    secure_4_2_1();
 }
 
 #[cfg(test)]
@@ -265,5 +327,72 @@ mod tests {
             println!("{:?}", m);
             assert_eq!(a, *m);
         }
+    }
+
+    #[test]
+    fn check_generate_constraints_5() {
+        let mut cs = generate_all_constraints::<5, 1>();
+        let manual_c = Constraint {
+            op: Operation::E,
+            k: RowVector5::new(0, 0, 0, 0, 0),
+            x: RowVector5::new(0, 0, 0, 0, 0),
+            y: RowVector5::new(0, 0, 0, 0, 1),
+        };
+        assert_eq!(cs.next(), Some(manual_c));
+        let manual_c = Constraint {
+            op: Operation::E,
+            k: RowVector5::new(0, 0, 0, 0, 0),
+            x: RowVector5::new(0, 0, 0, 1, 0),
+            y: RowVector5::new(0, 0, 0, 0, 1),
+        };
+        assert_eq!(cs.next(), Some(manual_c));
+        let mut cs = generate_all_constraints::<5, 2>();
+        let manual_c = Constraint {
+            op: Operation::E,
+            k: RowVector5::new(0, 0, 0, 0, 0),
+            x: RowVector5::new(0, 0, 0, 0, 0),
+            y: RowVector5::new(0, 0, 0, 1, 0),
+        };
+        assert_eq!(cs.next(), Some(manual_c));
+        let manual_c = Constraint {
+            op: Operation::E,
+            k: RowVector5::new(0, 0, 0, 0, 0),
+            x: RowVector5::new(0, 0, 1, 0, 0),
+            y: RowVector5::new(0, 0, 0, 1, 0),
+        };
+        assert_eq!(cs.next(), Some(manual_c));
+    }
+    #[test]
+    fn check_generate_constraints_6() {
+        let mut cs = generate_all_constraints::<6, 1>();
+        let manual_c = Constraint {
+            op: Operation::E,
+            k: RowVector6::new(0, 0, 0, 0, 0, 0),
+            x: RowVector6::new(0, 0, 0, 0, 0, 0),
+            y: RowVector6::new(0, 0, 0, 0, 0, 1),
+        };
+        assert_eq!(cs.next(), Some(manual_c));
+        let manual_c = Constraint {
+            op: Operation::E,
+            k: RowVector6::new(0, 0, 0, 0, 0, 0),
+            x: RowVector6::new(0, 0, 0, 0, 1, 0),
+            y: RowVector6::new(0, 0, 0, 0, 0, 1),
+        };
+        assert_eq!(cs.next(), Some(manual_c));
+        let mut cs = generate_all_constraints::<6, 2>();
+        let manual_c = Constraint {
+            op: Operation::E,
+            k: RowVector6::new(0, 0, 0, 0, 0, 0),
+            x: RowVector6::new(0, 0, 0, 0, 0, 0),
+            y: RowVector6::new(0, 0, 0, 0, 1, 0),
+        };
+        assert_eq!(cs.next(), Some(manual_c));
+        let manual_c = Constraint {
+            op: Operation::E,
+            k: RowVector6::new(0, 0, 0, 0, 0, 0),
+            x: RowVector6::new(0, 0, 0, 1, 0, 0),
+            y: RowVector6::new(0, 0, 0, 0, 1, 0),
+        };
+        assert_eq!(cs.next(), Some(manual_c));
     }
 }
