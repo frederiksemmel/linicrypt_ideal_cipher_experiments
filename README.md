@@ -176,6 +176,22 @@ Y10,1,B    Y10,1,B     10,1,B     10,1,B     10,1,B     10,1,B     10,1,B     10
 ...
 ```
 
+This is the count for each collision structure:
+```
+10,0,BF: 41388
+01,0,BF: 28704
+10,0,BB: 29988
+10,0,FB: 29988
+01,1,F: 25728
+01,1,B: 25728
+01,0,BB: 28704
+10,1,F: 35448
+01,0,FB: 44928
+01,0,FF: 44928
+10,0,FF: 41388
+10,1,B: 27456
+```
+
 These combinations of collision structures occur.
 ```
 000000000000: 76668
