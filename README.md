@@ -1,6 +1,6 @@
 # Modeling the ideal cipher in Linicrypt experiments
 
-### Compression functions
+## Compression functions
 
 This code lists all the compression functions from [PGV] and checks
 for a collision structure.
@@ -126,7 +126,7 @@ In the case of a single query program, there is only type forward and type backw
 There are 18 programs of type F and 18 of type B.
 12 are secure, meaning they have no collision structure.
 
-### Finding interesting examples for 3 inputs and 2 queries
+## Finding interesting examples for 3 inputs and 2 queries
 
 Below is a small piece of the output if we search for programs that have <= 2 collision structures.
 There are 12 possible collision structures for programs of this type.
@@ -239,7 +239,7 @@ These combinations of collision structures occur.
 
 Note, that no program has only a single collision structure with 2 different queries.
 
-### Better compression ratio: 3 blocks using 2 queries
+## Better compression ratio: 3 blocks using 2 queries
 
 As an experiment, I looked for such a linicrypt program without a collision structure.
 This is the first such a program, sorting the programs lexicographically.
