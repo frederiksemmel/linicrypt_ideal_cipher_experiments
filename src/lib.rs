@@ -1,6 +1,7 @@
 use na::*;
 use nalgebra as na;
 
+pub mod next;
 pub mod print_grid;
 
 const EPSILON: f64 = 0.0001;
