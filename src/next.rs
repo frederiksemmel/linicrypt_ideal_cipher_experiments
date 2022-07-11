@@ -1,14 +1,13 @@
 use na::*;
 use nalgebra as na;
 
-// type Query = DMatrix<u8>;
-type Query<const B: usize> = Matrix<Dynamic, Const<B>, u8, VecStorage<u8, Dynamic, Const<B>>>;
+type Query = DMatrix<u8>;
 type Answer = Matrix1xX<u8>;
 type Nonce = Vec<u8>;
 
-pub struct ROMConstraint<const B: usize> {
+pub struct ROMConstraint {
     pub t: Nonce,
-    pub q: Query<B>,
+    pub q: Query,
     pub a: Answer,
 }
 
@@ -27,8 +26,10 @@ impl Constraints {
         // TODO
         true
     }
-    
-    pub fn deterministically_solvable(fixing: DMatrix<)
+
+    pub fn deterministically_solvable(fixing: DMatrix<u8>, ordering: Vec<usize>) -> bool {
+        todo!()
+    }
 }
 
 pub struct AlgebraicRepresentation {
@@ -37,6 +38,4 @@ pub struct AlgebraicRepresentation {
     pub c: Constraints,
 }
 
-impl AlgebraicRepresentation {
-    
-}
+impl AlgebraicRepresentation {}
