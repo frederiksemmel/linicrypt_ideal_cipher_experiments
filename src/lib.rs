@@ -1,6 +1,11 @@
+#![feature(adt_const_params)]
+#![feature(generic_const_exprs)]
+#![feature(decl_macro)]
+
 use na::*;
 use nalgebra as na;
 
+pub mod next;
 pub mod print_grid;
 
 const EPSILON: f64 = 0.0001;
@@ -43,6 +48,7 @@ impl<const BASE: usize, const N: usize> AlgebraicRepresentation<BASE, N, 1> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
+    N,
     F,
     B,
 }
@@ -51,6 +57,7 @@ use std::fmt;
 impl fmt::Display for Direction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Direction::N => write!(f, " "),
             Direction::F => write!(f, "F"),
             Direction::B => write!(f, "B"),
         }
@@ -58,9 +65,10 @@ impl fmt::Display for Direction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CollisionStructure<const N: usize, const DIFF: usize> {
+pub struct CollisionStructure<const N: usize> {
     pub permutation: [usize; N],
-    pub cs_type: [Direction; DIFF],
+    pub i_star: usize,
+    pub cs_type: [Direction; N],
 }
 
 // TODO This will probably be needed to generate collision structures dynamically
@@ -76,21 +84,18 @@ use std::iter::Zip;
 type DifferentIter<'a> =
     Zip<Copied<std::slice::Iter<'a, usize>>, Copied<std::slice::Iter<'a, Direction>>>;
 
-impl<const N: usize, const DIFF: usize> CollisionStructure<N, DIFF> {
+impl<const N: usize> CollisionStructure<N> {
     pub fn same(&self) -> &[usize] {
-        &self.permutation[..N - DIFF]
+        &self.permutation[..self.i_star]
     }
     pub fn different(&self) -> DifferentIter {
-        self.permutation[N - DIFF..]
+        self.permutation[self.i_star..]
             .iter()
             .copied()
-            .zip(self.cs_type.iter().copied())
-    }
-    pub fn directions(&self) -> &[Direction] {
-        &self.cs_type
+            .zip(self.cs_type[self.i_star..].iter().copied())
     }
     pub fn i_star(&self) -> (usize, Direction) {
-        (self.permutation[N - DIFF], self.cs_type[0])
+        (self.permutation[self.i_star], self.cs_type[self.i_star])
     }
 }
 
@@ -98,20 +103,14 @@ fn repr_slice<'a>(row: impl IntoIterator<Item = &'a (impl std::fmt::Display + 'a
     row.into_iter().map(|entry| format!("{}", entry)).collect()
 }
 
-impl<const N: usize, const DIFF: usize> CollisionStructure<N, DIFF> {
+impl<const N: usize> CollisionStructure<N> {
     pub fn id(&self) -> String {
         let perm = repr_slice(&self.permutation);
         // let perm = format!("{}{}", self.permutation[0], self.permutation[1]);
         let cs_type = repr_slice(&self.cs_type);
-        format!("{perm},{},{cs_type}", N - DIFF)
+        format!("{perm},{},{cs_type}", N - self.i_star)
     }
 }
-// impl CollisionStructure<1, 1> {
-//     pub fn id(&self) -> String {
-//         let perm = format!("{}", self.permutation[0]);
-//         format!("{perm},{},{}", 0, self.cs_type[0])
-//     }
-// }
 
 fn is_in_span<const BASE: usize>(v: RowSVector<u8, BASE>, fixed: &[RowSVector<u8, BASE>]) -> bool {
     let matrix = na::OMatrix::<u8, Dynamic, Const<BASE>>::from_rows(fixed).cast::<f64>();
@@ -134,7 +133,7 @@ fn full_rank<const BASE: usize>(rows: &[RowSVector<u8, BASE>]) -> bool {
 }
 
 impl<const BASE: usize, const N: usize> AlgebraicRepresentation<BASE, N, 1> {
-    pub fn has_cs<const I_STAR: usize>(&self, cs: &CollisionStructure<N, I_STAR>) -> bool {
+    pub fn has_cs(&self, cs: &CollisionStructure<N>) -> bool {
         let same = cs
             .same()
             // .permutation
@@ -149,6 +148,7 @@ impl<const BASE: usize, const N: usize> AlgebraicRepresentation<BASE, N, 1> {
         let (free_1, free_2) = match dir_star {
             Direction::F => (c_star.k, c_star.x),
             Direction::B => (c_star.k, c_star.y),
+            Direction::N => unreachable!(),
         };
         if is_in_span(free_1, &fixed) && is_in_span(free_2, &fixed) {
             // println!("Cond 2 not fulfilled");
@@ -162,6 +162,7 @@ impl<const BASE: usize, const N: usize> AlgebraicRepresentation<BASE, N, 1> {
             let (should_be_free, fixed_1, fixed_2) = match dir {
                 Direction::F => (c.y, c.k, c.x),
                 Direction::B => (c.x, c.k, c.y),
+                Direction::N => unreachable!(),
             };
             fixed.push(fixed_1);
             fixed.push(fixed_2);
@@ -193,8 +194,9 @@ mod tests {
     fn check_cs_split() {
         use super::Direction::*;
 
-        let cs0 = CollisionStructure::<2, 2> {
+        let cs0 = CollisionStructure::<2> {
             permutation: [0, 1],
+            i_star: 0,
             cs_type: [F, B],
         };
         assert_eq!(cs0.same(), &[]);
@@ -203,18 +205,20 @@ mod tests {
         assert_eq!(different.next(), Some((1, B)));
         assert_eq!(different.next(), None);
 
-        let cs1 = CollisionStructure::<2, 1> {
+        let cs1 = CollisionStructure::<2> {
             permutation: [0, 1],
-            cs_type: [B],
+            i_star: 1,
+            cs_type: [N, B],
         };
         assert_eq!(cs1.same(), &[0]);
         let mut different = cs1.different();
         assert_eq!(different.next(), Some((1, B)));
         assert_eq!(different.next(), None);
 
-        let cs1 = CollisionStructure::<2, 1> {
+        let cs1 = CollisionStructure::<2> {
             permutation: [1, 0],
-            cs_type: [F],
+            i_star: 1,
+            cs_type: [N, F],
         };
         assert_eq!(cs1.same(), &[1]);
         let mut different = cs1.different();
@@ -227,8 +231,9 @@ mod tests {
         use super::Direction::*;
         use super::Operation::*;
 
-        let cs = CollisionStructure::<2, 2> {
+        let cs = CollisionStructure::<2> {
             permutation: [0, 1],
+            i_star: 0,
             cs_type: [B, F],
         };
         let p = AlgebraicRepresentation::<5, 2, 1>::new(
@@ -247,8 +252,9 @@ mod tests {
         use super::Direction::*;
         use super::Operation::*;
 
-        let cs = CollisionStructure::<2, 2> {
+        let cs = CollisionStructure::<2> {
             permutation: [0, 1],
+            i_star: 0,
             cs_type: [B, F],
         };
         let p = AlgebraicRepresentation::<5, 2, 1>::new(
@@ -267,8 +273,9 @@ mod tests {
         use super::Direction::*;
         use super::Operation::*;
 
-        let cs = CollisionStructure::<2, 2> {
+        let cs = CollisionStructure::<2> {
             permutation: [0, 1],
+            i_star: 0,
             cs_type: [F, B],
         };
         let p = AlgebraicRepresentation::<5, 2, 1>::new(

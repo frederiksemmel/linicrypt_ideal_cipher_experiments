@@ -7,6 +7,7 @@ edition = "2021"
 nalgebra = "*"
 itertools = "*"
 term_grid = "*"
+rayon = "*"
 
 # [dependencies.nalgebra-lapack]
 # version = "*" # Replace the * by the latest version number.

@@ -257,6 +257,7 @@ dependencies = [
  "criterion",
  "itertools",
  "nalgebra",
+ "rayon",
  "term_grid",
 ]
 

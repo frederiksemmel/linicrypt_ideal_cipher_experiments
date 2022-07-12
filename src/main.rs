@@ -7,22 +7,35 @@ use std::collections::HashMap;
 
 use linicrypt::{AlgebraicRepresentation, CollisionStructure, Constraint, Direction, Operation};
 
-fn generate_all_cs_2<const DIFF: usize>() -> impl Iterator<Item = CollisionStructure<2, DIFF>> {
+fn generate_all_cs_2_2() -> impl Iterator<Item = CollisionStructure<2>> {
     use Direction::*;
     let perms = (0..2).permutations(2);
-    let types = (0..DIFF).map(|_| vec![F, B]).multi_cartesian_product();
-    iproduct!(perms, types).map(|(p, t)| CollisionStructure::<2, DIFF> {
+    let types = (0..2).map(|_| vec![F, B]).multi_cartesian_product();
+    iproduct!(perms, types).map(|(p, t)| CollisionStructure::<2> {
         permutation: p.try_into().unwrap(),
+        i_star: 2,
+        cs_type: t.try_into().unwrap(),
+    })
+}
+fn generate_all_cs_2_1() -> impl Iterator<Item = CollisionStructure<2>> {
+    use Direction::*;
+    let perms = (0..2).permutations(2);
+    let types = (0..1).map(|_| vec![F, B]).multi_cartesian_product();
+    iproduct!(perms, types).map(|(p, t)| CollisionStructure::<2> {
+        permutation: p.try_into().unwrap(),
+        i_star: 1,
         cs_type: t.try_into().unwrap(),
     })
 }
 
-fn generate_all_cs_1<const DIFF: usize>() -> impl Iterator<Item = CollisionStructure<1, DIFF>> {
+fn generate_all_cs_1() -> impl Iterator<Item = CollisionStructure<1>> {
     use Direction::*;
     let perms = (0..1).permutations(1);
-    let types = (0..DIFF).map(|_| vec![F, B]).multi_cartesian_product();
-    iproduct!(perms, types).map(|(p, t)| CollisionStructure::<1, DIFF> {
+    let types = (0..1).map(|_| vec![F, B]).multi_cartesian_product();
+    iproduct!(perms, types).map(|(p, t)| CollisionStructure::<1> {
         permutation: p.try_into().unwrap(),
+        // todo fix this is bullshit
+        i_star: 1,
         cs_type: t.try_into().unwrap(),
     })
 }
@@ -50,20 +63,19 @@ fn generate_all_constraints<const BASE: usize, const ZEROS: usize>(
     })
 }
 
-fn generate_i_2_1_programs<const BASE: usize>() -> Vec<AlgebraicRepresentation<BASE, 2, 1>> {
+fn generate_i_2_1_programs<const BASE: usize>(
+) -> impl Iterator<Item = AlgebraicRepresentation<BASE, 2, 1>> {
     let ms = generate_all_vecs::<BASE, 1>([1]);
     let c1s: Vec<_> = generate_all_constraints::<BASE, 2>().collect();
     let c2s: Vec<_> = generate_all_constraints::<BASE, 1>().collect();
 
-    iproduct!(ms, c1s, c2s)
-        .map(|(m, c1, c2)| AlgebraicRepresentation {
-            m,
-            constraints: [c1, c2],
-        })
-        .collect()
+    iproduct!(ms, c1s, c2s).map(|(m, c1, c2)| AlgebraicRepresentation {
+        m,
+        constraints: [c1, c2],
+    })
 }
 
-fn generate_2_1_1_programs<const BASE: usize>() -> Vec<AlgebraicRepresentation<BASE, 1, 1>> {
+fn generate_i_1_1_programs<const BASE: usize>() -> Vec<AlgebraicRepresentation<BASE, 1, 1>> {
     let ms = generate_all_vecs::<BASE, 1>([1]);
     let css: Vec<_> = generate_all_constraints::<BASE, 1>().collect();
 
@@ -139,7 +151,7 @@ fn check_css<const BASE: usize, const N: usize, const DIFF: usize>(
 fn compression_functions() {
     println!();
     println!("Analyzing all 64 compression schemes with 2 input, 1 queries and 1 output.");
-    let ps = generate_2_1_1_programs::<{ 2 + 1 }>();
+    let ps = generate_i_1_1_programs::<{ 2 + 1 }>();
     let css: Vec<_> = generate_all_cs_1::<1>().collect();
 
     let mut counter: HashMap<String, usize> = HashMap::new();
@@ -237,21 +249,107 @@ fn collision_structure_examples() {
     print_comb_counter(&css2, &css1, combination_counter);
 }
 
+// struct CSAnalysis2<'cs, const BASE: usize> {
+//     p: AlgebraicRepresentation<BASE, 2, 1>,
+//     css2: Vec<(&'cs CollisionStructure<2, 2>, bool)>,
+//     css1: Vec<(&'cs CollisionStructure<2, 1>, bool)>,
+// }
+
+// impl<'cs, const BASE: usize> CSAnalysis2<'cs, BASE> {
+//     fn analyze(
+//         p: AlgebraicRepresentation<BASE, 2, 1>,
+//         css2: &'cs CollisionStructure<2, 2>,
+//         css1: &'cs CollisionStructure<2, 1>,
+//     ) -> Self {
+//     }
+// }
+
 fn secure_4_2_1() {
     println!();
     println!(
         "Finding a program with 4 inputs, making 2 queries to E without a collision structure"
     );
     let ps = generate_i_2_1_programs::<{ 4 + 2 }>();
+    println!("{:?}", ps.size_hint());
     let css2: Vec<_> = generate_all_cs_2::<2>().collect();
     let css1: Vec<_> = generate_all_cs_2::<1>().collect();
-    for p in &ps {
+    // ps.map(|p| {
+    //     if p.is_degenerate() {
+    //         return 0;
+    //     }
+    //     let has_cs_1 = css1.iter().any(|cs| p.has_cs(cs));
+    //     let has_cs_2 = css2.iter().any(|cs| p.has_cs(cs));
+    //     if !has_cs_1 && !has_cs_2 {
+    //         print_linicrypt(&p);
+    //         return 1;
+    //     }
+    //     0
+    // })
+    // .par_bridge()
+    // .collect::<Vec<_>>();
+    for p in ps {
         if p.is_degenerate() {
             continue;
         }
         let has_cs_1 = css1.iter().any(|cs| p.has_cs(cs));
         let has_cs_2 = css2.iter().any(|cs| p.has_cs(cs));
         if !has_cs_1 && !has_cs_2 {
+            print_linicrypt(&p);
+            break;
+        }
+    }
+}
+use rayon::prelude::*;
+fn secure_5_2_1() {
+    println!();
+    println!(
+        "Finding a program with 5 inputs, making 2 queries to E without a collision structure"
+    );
+    let ps = generate_i_2_1_programs::<{ 5 + 2 }>();
+    let total = ps.size_hint();
+    let css2: Vec<_> = generate_all_cs_2::<2>().collect();
+    let css1: Vec<_> = generate_all_cs_2::<1>().collect();
+    ps.enumerate()
+        .map(|(i, p)| {
+            print!("{i} of {total:?}\r");
+            if p.is_degenerate() {
+                return;
+            }
+            let has_cs_1 = css1.iter().any(|cs| p.has_cs(cs));
+            let has_cs_2 = css2.iter().any(|cs| p.has_cs(cs));
+            if !has_cs_1 && !has_cs_2 {
+                print_linicrypt(&p);
+            }
+        })
+        .par_bridge()
+        .collect::<Vec<_>>();
+    // for (i, p) in ps.enumerate() {
+    //     print!("{i} of {total:?}\r");
+    //     if p.is_degenerate() {
+    //         continue;
+    //     }
+    //     let has_cs_1 = css1.iter().any(|cs| p.has_cs(cs));
+    //     let has_cs_2 = css2.iter().any(|cs| p.has_cs(cs));
+    //     if !has_cs_1 && !has_cs_2 {
+    //         print_linicrypt(&p);
+    //         break;
+    //     }
+    // }
+}
+
+fn secure_3_1_1() {
+    println!();
+    println!(
+        "Finding a program with 3 inputs, making 1 queries to E without a collision structure"
+    );
+    let ps = generate_i_1_1_programs::<{ 3 + 1 }>();
+    let css: Vec<_> = generate_all_cs_1::<1>().collect();
+    for p in &ps {
+        if p.is_degenerate() {
+            continue;
+        }
+        let has_cs = css.iter().any(|cs| p.has_cs(cs));
+        if !has_cs {
             print_linicrypt(p);
             break;
         }
@@ -259,9 +357,11 @@ fn secure_4_2_1() {
 }
 
 fn main() {
-    compression_functions();
-    collision_structure_examples();
-    secure_4_2_1();
+    // compression_functions();
+    // secure_3_1_1();
+    // collision_structure_examples();
+    // secure_4_2_1();
+    secure_5_2_1();
 }
 
 #[cfg(test)]
